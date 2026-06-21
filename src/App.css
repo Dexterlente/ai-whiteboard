@@ -1,0 +1,48 @@
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  color: #0f0f0f;
+}
+
+/*
+ * Toolbar controls only. These are scoped to .app-toolbar so they don't leak into
+ * Excalidraw's own buttons/inputs, which render into the same DOM (no shadow root).
+ */
+.app-toolbar input,
+.app-toolbar button {
+  border-radius: 8px;
+  border: 1px solid #d0d0d0;
+  font-size: 0.95em;
+  font-family: inherit;
+  color: #0f0f0f;
+  background-color: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+}
+
+.app-toolbar button {
+  padding: 0.55em 1em;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.app-toolbar button:hover:not(:disabled) {
+  border-color: #396cd8;
+}
+
+.app-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.app-toolbar input:focus {
+  outline: none;
+  border-color: #396cd8;
+}
