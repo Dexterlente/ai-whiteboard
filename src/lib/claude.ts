@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { findJsonObject } from "./json";
 
 export type DiagramNode = { id: string; text: string; x: number; y: number };
 export type DiagramEdge = { from: string; to: string; label?: string };
@@ -6,54 +7,6 @@ export type Diagram = { title: string; nodes: DiagramNode[]; edges: DiagramEdge[
 
 /** The `claude --output-format json` envelope (only the fields we use). */
 type ClaudeEnvelope = { is_error?: boolean; result?: string };
-
-/**
- * Return the brace-balanced substring starting at `from` (skipping anything inside a
- * string literal), or null if the braces never balance before the text ends.
- */
-function balancedObject(text: string, from: number): string | null {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = from; i < text.length; i++) {
-    const ch = text[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
-      inString = true;
-    } else if (ch === "{") {
-      depth++;
-    } else if (ch === "}") {
-      depth--;
-      if (depth === 0) return text.slice(from, i + 1);
-    }
-  }
-  return null;
-}
-
-/**
- * Find the diagram object in the model's reply. The model is told to return bare JSON,
- * but may wrap it in ```json fences or add a preamble that itself contains "{" (e.g.
- * "I used a {decision} node"). So we try each "{" in turn and return the first balanced
- * object that both parses AND has a `nodes` array — ignoring stray braces and non-diagram
- * objects rather than locking onto the first "{" we see.
- */
-function parseDiagramObject(text: string): any {
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] !== "{") continue;
-    const candidate = balancedObject(text, i);
-    if (!candidate) continue;
-    try {
-      const obj = JSON.parse(candidate);
-      if (obj && typeof obj === "object" && Array.isArray(obj.nodes)) return obj;
-    } catch {
-      // Not valid JSON starting here — keep scanning for the next "{".
-    }
-  }
-  throw new Error("Claude did not return a diagram JSON object — try rephrasing your prompt");
-}
 
 /** Accept a real number or a numeric string; reject null, "", booleans, NaN, etc. */
 function coord(value: any, nodeIndex: number, axis: "x" | "y"): number {
@@ -121,5 +74,9 @@ export async function generateDiagram(prompt: string): Promise<Diagram> {
     throw new Error(envelope.result ?? "claude returned no result");
   }
 
-  return toDiagram(parseDiagramObject(envelope.result));
+  const obj = findJsonObject(envelope.result, (o) => Array.isArray(o.nodes));
+  if (!obj) {
+    throw new Error("Claude did not return a diagram JSON object — try rephrasing your prompt");
+  }
+  return toDiagram(obj);
 }

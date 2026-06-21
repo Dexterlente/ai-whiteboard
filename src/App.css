@@ -8,41 +8,103 @@ body,
 }
 
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  color: #0f0f0f;
+  font-family: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu,
+    Cantarell, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #1f2430;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
 }
 
-/*
- * Toolbar controls only. These are scoped to .app-toolbar so they don't leak into
- * Excalidraw's own buttons/inputs, which render into the same DOM (no shadow root).
- */
-.app-toolbar input,
-.app-toolbar button {
+body {
+  margin: 0;
+}
+
+/* Filled accent button (used by primary action buttons across the app). */
+.primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  font-size: 13px;
+  background-color: #6366f1 !important;
+  border: 1px solid #6366f1 !important;
+  color: #ffffff !important;
   border-radius: 8px;
-  border: 1px solid #d0d0d0;
-  font-size: 0.95em;
   font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
-}
-
-.app-toolbar button {
-  padding: 0.55em 1em;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: background-color 0.15s, border-color 0.15s;
 }
 
-.app-toolbar button:hover:not(:disabled) {
-  border-color: #396cd8;
+.primary:hover:not(:disabled) {
+  background-color: #4f46e5 !important;
+  border-color: #4f46e5 !important;
 }
 
-.app-toolbar button:disabled {
+.primary:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.app-toolbar input:focus {
-  outline: none;
-  border-color: #396cd8;
+/* Rendered markdown inside the task drawer. */
+.cu-markdown {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #1f2430;
+  word-break: break-word;
+}
+.cu-markdown > :first-child {
+  margin-top: 0;
+}
+.cu-markdown h1,
+.cu-markdown h2,
+.cu-markdown h3 {
+  font-size: 1.05em;
+  font-weight: 650;
+  margin: 1em 0 0.4em;
+}
+.cu-markdown p {
+  margin: 0.5em 0;
+}
+.cu-markdown ul,
+.cu-markdown ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.cu-markdown a {
+  color: #6366f1;
+  text-decoration: none;
+}
+.cu-markdown a:hover {
+  text-decoration: underline;
+}
+.cu-markdown code {
+  background: #f1f3f7;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+}
+.cu-markdown pre {
+  background: #f1f3f7;
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.cu-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.cu-markdown img {
+  max-width: 100%;
+  border-radius: 8px;
+  cursor: zoom-in;
+}
+.cu-markdown blockquote {
+  margin: 0.5em 0;
+  padding-left: 12px;
+  border-left: 3px solid #e3e6ec;
+  color: #6b7280;
 }
