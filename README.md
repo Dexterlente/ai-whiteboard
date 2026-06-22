@@ -48,13 +48,14 @@ cd ai-whiteboard
 # 2 — System dependencies (one-time)
 sudo apt update
 sudo apt install nodejs npm build-essential curl libwebkit2gtk-4.1-dev \
-  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+  libxdo-dev libssl-dev libayatana-appindicator3-dev
+# (librsvg2-dev is only needed if you later build the optional AppImage)
 # Rust (if you don't have it): https://rustup.rs
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 3 — Build the installable package (.deb)
+# 3 — Build the installable package (.deb — the AppImage is skipped by default)
 npm install
-npm run tauri build -- --bundles deb
+npm run tauri build
 
 # 4 — Install it
 sudo dpkg -i "src-tauri/target/release/bundle/deb/Dexter Managing Software_0.1.0_amd64.deb"
@@ -66,7 +67,7 @@ sudo apt -f install        # only if dpkg reports missing dependencies
 
 **Before first use:** install and sign in to the `claude` CLI (`claude login`) for the AI features, and on first launch open the ⚙ settings to paste your ClickUp `pk_…` token.
 
-To **update** later: `git pull`, rebuild step 3, reinstall step 4. To **uninstall**: `sudo apt remove dexter-managing-software`. For the portable **AppImage** instead of a `.deb`, and the full nuances, see [Install the app](#install-the-app).
+To **update** later: `git pull`, then rebuild (step 3) and reinstall (step 4). To **uninstall**: `sudo apt remove dexter-managing-software`. Want a portable **AppImage** instead? See [Install the app](#install-the-app) — it's opt-in.
 
 ---
 
@@ -190,7 +191,7 @@ src/
     *.test.ts              # vitest suites
 src-tauri/
   src/lib.rs               # all Tauri commands (see table above)
-  tauri.conf.json          # productName, window, bundle targets (deb, appimage)
+  tauri.conf.json          # productName, window, bundle target (deb; AppImage opt-in)
   capabilities/default.json# core + dialog permissions
   icons/                   # app icons (generated from public/app-icon.png)
 ```
@@ -220,9 +221,9 @@ The task **board layout** (which cards, where) is in the webview's `localStorage
 - Linux build/runtime deps (Ubuntu/Debian):
   ```bash
   sudo apt install libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
-    libayatana-appindicator3-dev librsvg2-dev
+    libayatana-appindicator3-dev
   ```
-  > `librsvg2-dev` is only needed for the **AppImage** bundle; the `.deb` builds without it.
+  > The default build is the `.deb`. `librsvg2-dev` is only needed if you opt into the **AppImage** (`--bundles appimage`).
 
 ---
 
@@ -235,15 +236,17 @@ npm run tauri dev                      # run with hot reload (dev)
 npm test                               # vitest — pure-logic unit tests
 npm run build                          # type-check (tsc) + Vite build of web assets only
 
-npm run tauri build                    # package: .deb + AppImage
-npm run tauri build -- --bundles deb   # .deb only (skip AppImage)
+npm run tauri build                        # package the .deb (default — AppImage is skipped)
+npm run tauri build -- --bundles appimage  # opt in to the portable AppImage (needs librsvg2-dev)
 ```
+
+The bundle targets live in `src-tauri/tauri.conf.json` (`bundle.targets`); it's set to `["deb"]`, so a plain `npm run tauri build` never runs the flaky AppImage/`linuxdeploy` step. Add `--bundles appimage` only when you actually want the portable build.
 
 When developing, you only need `npm run tauri dev`. `npm run build` is rarely run by itself — `npm run tauri build` invokes it for you. The "chunks larger than 500 kB" message during the web build is an informational warning, not an error.
 
 Bundles are written to `src-tauri/target/release/bundle/`:
 - `.deb` → `deb/Dexter Managing Software_0.1.0_amd64.deb`
-- AppImage → `appimage/Dexter Managing Software_0.1.0_amd64.AppImage`
+- AppImage (only with `--bundles appimage`) → `appimage/Dexter Managing Software_0.1.0_amd64.AppImage`
 
 ---
 
@@ -258,13 +261,15 @@ sudo apt -f install     # only if dpkg reports missing dependencies
 
 Launch **“Dexter Managing Software”** from the GNOME app grid, or run `todo` (the binary is `/usr/bin/todo`). Uninstall with `sudo apt remove dexter-managing-software`.
 
-Or run the **AppImage** (portable, no install):
+Prefer a portable **AppImage** (no install)? It's opt-in — build it explicitly (needs `librsvg2-dev`), then run it:
 ```bash
+sudo apt install librsvg2-dev                # one-time, AppImage only
+npm run tauri build -- --bundles appimage
 chmod +x "src-tauri/target/release/bundle/appimage/Dexter Managing Software_0.1.0_amd64.AppImage"
 "src-tauri/target/release/bundle/appimage/Dexter Managing Software_0.1.0_amd64.AppImage"
 ```
 
-After changing code: `npm run tauri build` → reinstall the `.deb` → relaunch. The installed app needs no `npm` at runtime.
+After changing code: `npm run tauri build` (builds the `.deb`) → reinstall the `.deb` → relaunch. The installed app needs no `npm` at runtime.
 
 ---
 
