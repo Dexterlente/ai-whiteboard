@@ -151,8 +151,9 @@ export function buildDiagramContext(
   const raw = (d.markdownDescription || d.textDescription || "").trim();
   const description = raw.length > 1500 ? raw.slice(0, 1500) + "…" : raw || "(none)";
   const recent = comments.slice(-5);
+  const clip = (t: string) => (t.length > 240 ? t.slice(0, 240) + "…" : t);
   const commentLines = recent.length
-    ? recent.map((c) => `  - ${c.author || "Unknown"}: ${c.text}`).join("\n")
+    ? recent.map((c) => `  - ${c.author || "Unknown"}: ${clip(c.text || "")}`).join("\n")
     : "  (none)";
   return [
     "TICKET CONTEXT (ground the diagram in this when relevant):",

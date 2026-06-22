@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Excalidraw, exportToBlob, serializeAsJSON } from "@excalidraw/excalidraw";
+import { Excalidraw, exportToBlob, serializeAsJSON, getCommonBounds } from "@excalidraw/excalidraw";
 import { invoke } from "@tauri-apps/api/core";
 import {
   fetchComments,
@@ -71,7 +71,9 @@ export function TaskDrawer({
   const boardLoaded = useRef(false); // true once the saved scene has been applied
   const loadFailedRef = useRef(false); // true if an existing scene file failed to parse → never overwrite it
   const saveTimer = useRef<number | null>(null);
+  const pendingScene = useRef<string | null>(null); // last scene serialized WHILE alive, awaiting write
   const generatingRef = useRef(false); // concurrency guard (state lags a frame; a ref blocks double-fire)
+  const mountedRef = useRef(true); // false after unmount → stops post-await work touching a torn-down board
 
   // Trigger the slide-in transition. Flip on a later frame (double rAF) so the browser first
   // paints the off-screen translateX(100%) state — otherwise there's nothing to animate from.
@@ -97,6 +99,11 @@ export function TaskDrawer({
   }
   useEffect(() => () => {
     if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
+
+  // Track mount so async generation can bail instead of writing to a torn-down board.
+  useEffect(() => () => {
+    mountedRef.current = false;
   }, []);
 
   // Close on Escape — but not while the board is shown (Excalidraw owns Escape there).
@@ -133,15 +140,14 @@ export function TaskDrawer({
     };
   }, [loadDetail]);
 
-  // Flush the board to disk on close/unmount — but only if it actually loaded,
-  // so closing mid-load never overwrites the saved drawing with a blank canvas.
+  // Flush the board to disk on close/unmount. We write the last snapshot captured WHILE the
+  // board was alive (see scheduleSave) — never re-serialize here, because on unmount Excalidraw
+  // tears down first and serializing it can yield an empty scene that clobbers the saved drawing.
   useEffect(() => {
     return () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      const api = apiRef.current;
-      if (api && boardLoaded.current && !loadFailedRef.current)
-        saveTaskScene(task.id, serialize(api)).catch(() => {});
+      flushSave();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id]);
 
   // Close the image lightbox on Escape (capture so it beats the drawer's Escape).
@@ -194,19 +200,33 @@ export function TaskDrawer({
   function scheduleSave() {
     // bail if not loaded yet, or if the existing file was corrupt (don't clobber it)
     if (!apiRef.current || !boardLoaded.current || loadFailedRef.current) return;
+    // Capture the scene NOW, while the board is alive — the unmount flush writes this snapshot
+    // rather than re-serializing a torn-down Excalidraw (which would save a blank canvas).
+    pendingScene.current = serialize(apiRef.current);
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => {
-      if (apiRef.current) saveTaskScene(task.id, serialize(apiRef.current)).catch(() => {});
-    }, 800);
+    saveTimer.current = window.setTimeout(flushSave, 800);
+  }
+
+  // Write the last captured scene snapshot to disk (debounced tick, tab close, or unmount).
+  function flushSave() {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const json = pendingScene.current;
+    pendingScene.current = null;
+    if (json != null) saveTaskScene(task.id, json).catch(() => {});
   }
 
   // Resolve once the board is mounted AND its saved scene has been applied. Mounting
   // Excalidraw is async (loadBoard runs on its excalidrawAPI callback), so callers that
-  // just flipped boardMounted on must wait for the API before pushing elements.
+  // just flipped boardMounted on must wait for the API before pushing elements. Stops if the
+  // drawer unmounts mid-wait.
   function waitForBoard(timeoutMs = 8000): Promise<any> {
     return new Promise((resolve, reject) => {
       const start = Date.now();
       const tick = () => {
+        if (!mountedRef.current) return reject(new Error("closed"));
         if (apiRef.current && boardLoaded.current) return resolve(apiRef.current);
         if (Date.now() - start > timeoutMs) return reject(new Error("The board didn't load in time — try again."));
         window.setTimeout(tick, 80);
@@ -219,10 +239,8 @@ export function TaskDrawer({
   // manual drawings) instead of stacking on top at the same coordinates.
   function placeBelowExisting(existing: any[], els: any[]): any[] {
     if (!els.length || !existing.length) return els; // empty board → place as generated
-    let existingBottom = -Infinity;
-    for (const e of existing) existingBottom = Math.max(existingBottom, (e.y ?? 0) + (e.height ?? 0));
-    let newTop = Infinity;
-    for (const e of els) newTop = Math.min(newTop, e.y ?? 0);
+    const existingBottom = getCommonBounds(existing)[3]; // [minX, minY, maxX, maxY]
+    const newTop = getCommonBounds(els)[1];
     const dy = existingBottom + 80 - newTop;
     if (dy <= 0) return els; // already clear of existing content
     return els.map((e) => ({ ...e, y: (e.y ?? 0) + dy }));
@@ -233,30 +251,39 @@ export function TaskDrawer({
   async function generateOntoBoard(prompt: string) {
     if (!prompt.trim() || generatingRef.current) return; // ref guard: blocks a double-fire before state flips
     generatingRef.current = true;
-    setBoardMounted(true); // ensure the board exists…
-    setTab("board"); // …and is the visible pane so the user sees the result
+    setBoardMounted(true); // ensure the board exists (mounts hidden if needed)
     setGenerating(true);
     setGenError(null);
     try {
       const api = await waitForBoard();
+      if (!mountedRef.current) return; // drawer closed while waiting
       if (loadFailedRef.current) {
-        // Saved scene is corrupt → scheduleSave/unmount-save are suppressed, so anything we
-        // draw now would be silently lost. Fail loudly instead of wasting a Claude call.
+        // Saved scene is corrupt → we never overwrite it, so anything we draw now would be lost.
+        // Fail loudly instead of wasting a Claude call.
         setGenError("This board's saved drawing couldn't be read, so new changes won't be saved. Clear or fix it first.");
         return;
       }
+      setTab("board"); // reveal the board so the user watches the result draw in
       const ctx = buildDiagramContext(task, detail, comments);
       const diagram = await generateDiagram(prompt, ctx);
+      if (!mountedRef.current) return; // drawer closed during the Claude call → don't touch a dead board
       const existing = api.getSceneElements();
       const els = placeBelowExisting(existing, diagramToElements(diagram));
       api.updateScene({ elements: [...existing, ...els] }); // append, don't wipe
       if (els.length) api.scrollToContent(els, { fitToContent: true });
-      // the resulting onChange auto-saves
+      // Persist immediately rather than trusting the debounced onChange save — a quick close
+      // would otherwise drop the just-drawn diagram. saveTaskScene errors surface below.
+      pendingScene.current = null; // we're persisting the current scene now
+      if (saveTimer.current) {
+        clearTimeout(saveTimer.current);
+        saveTimer.current = null;
+      }
+      await saveTaskScene(task.id, serialize(api));
     } catch (e) {
-      setGenError(toMessage(e));
+      if (mountedRef.current) setGenError(toMessage(e));
     } finally {
       generatingRef.current = false;
-      setGenerating(false);
+      if (mountedRef.current) setGenerating(false);
     }
   }
 
