@@ -20,7 +20,7 @@ import { toMessage } from "../lib/errors";
 import { Avatar } from "./Avatar";
 import { AssistantTab } from "./AssistantTab";
 import { AgentChat } from "./AgentChat";
-import { buildAgentTicketContext } from "../lib/assistant";
+import { buildAgentTicketContext, buildDiagramContext } from "../lib/assistant";
 import { getAgentFolder, getAgentPermission } from "../lib/agent";
 import { colors, radius, space, PRIORITY_COLOR, solidBadgeBg, tagColors } from "./ui";
 
@@ -71,6 +71,7 @@ export function TaskDrawer({
   const boardLoaded = useRef(false); // true once the saved scene has been applied
   const loadFailedRef = useRef(false); // true if an existing scene file failed to parse → never overwrite it
   const saveTimer = useRef<number | null>(null);
+  const generatingRef = useRef(false); // concurrency guard (state lags a frame; a ref blocks double-fire)
 
   // Trigger the slide-in transition. Flip on a later frame (double rAF) so the browser first
   // paints the off-screen translateX(100%) state — otherwise there's nothing to animate from.
@@ -199,22 +200,68 @@ export function TaskDrawer({
     }, 800);
   }
 
-  async function handleGenerate() {
-    const api = apiRef.current;
-    if (!api || !boardLoaded.current || !genPrompt.trim() || generating) return;
+  // Resolve once the board is mounted AND its saved scene has been applied. Mounting
+  // Excalidraw is async (loadBoard runs on its excalidrawAPI callback), so callers that
+  // just flipped boardMounted on must wait for the API before pushing elements.
+  function waitForBoard(timeoutMs = 8000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const tick = () => {
+        if (apiRef.current && boardLoaded.current) return resolve(apiRef.current);
+        if (Date.now() - start > timeoutMs) return reject(new Error("The board didn't load in time — try again."));
+        window.setTimeout(tick, 80);
+      };
+      tick();
+    });
+  }
+
+  // Shift a freshly generated batch down so it sits below `existing` (previous diagrams,
+  // manual drawings) instead of stacking on top at the same coordinates.
+  function placeBelowExisting(existing: any[], els: any[]): any[] {
+    if (!els.length || !existing.length) return els; // empty board → place as generated
+    let existingBottom = -Infinity;
+    for (const e of existing) existingBottom = Math.max(existingBottom, (e.y ?? 0) + (e.height ?? 0));
+    let newTop = Infinity;
+    for (const e of els) newTop = Math.min(newTop, e.y ?? 0);
+    const dy = existingBottom + 80 - newTop;
+    if (dy <= 0) return els; // already clear of existing content
+    return els.map((e) => ({ ...e, y: (e.y ?? 0) + dy }));
+  }
+
+  // Generate a diagram and draw it onto THIS ticket's board. Shared by the board toolbar
+  // and the "Flowchart → board" button in Ask Claude (which may need the board mounted first).
+  async function generateOntoBoard(prompt: string) {
+    if (!prompt.trim() || generatingRef.current) return; // ref guard: blocks a double-fire before state flips
+    generatingRef.current = true;
+    setBoardMounted(true); // ensure the board exists…
+    setTab("board"); // …and is the visible pane so the user sees the result
     setGenerating(true);
     setGenError(null);
     try {
-      const diagram = await generateDiagram(genPrompt);
-      const els = diagramToElements(diagram);
-      api.updateScene({ elements: [...api.getSceneElements(), ...els] }); // append, don't wipe
+      const api = await waitForBoard();
+      if (loadFailedRef.current) {
+        // Saved scene is corrupt → scheduleSave/unmount-save are suppressed, so anything we
+        // draw now would be silently lost. Fail loudly instead of wasting a Claude call.
+        setGenError("This board's saved drawing couldn't be read, so new changes won't be saved. Clear or fix it first.");
+        return;
+      }
+      const ctx = buildDiagramContext(task, detail, comments);
+      const diagram = await generateDiagram(prompt, ctx);
+      const existing = api.getSceneElements();
+      const els = placeBelowExisting(existing, diagramToElements(diagram));
+      api.updateScene({ elements: [...existing, ...els] }); // append, don't wipe
       if (els.length) api.scrollToContent(els, { fitToContent: true });
       // the resulting onChange auto-saves
     } catch (e) {
       setGenError(toMessage(e));
     } finally {
+      generatingRef.current = false;
       setGenerating(false);
     }
+  }
+
+  function handleGenerate() {
+    void generateOntoBoard(genPrompt);
   }
 
   async function handleExport() {
@@ -477,7 +524,14 @@ export function TaskDrawer({
                 ))}
               </div>
               <div style={{ flex: 1, minHeight: 0, display: assistantMode === "actions" ? "flex" : "none", flexDirection: "column" }}>
-                <AssistantTab task={task} detail={detail} comments={comments} onApplied={loadDetail} />
+                <AssistantTab
+                  task={task}
+                  detail={detail}
+                  comments={comments}
+                  onApplied={loadDetail}
+                  onGenerateFlowchart={generateOntoBoard}
+                  flowchartBusy={generating}
+                />
               </div>
               {agentSeen && (
                 <div style={{ flex: 1, minHeight: 0, display: assistantMode === "agent" ? "flex" : "none", flexDirection: "column" }}>

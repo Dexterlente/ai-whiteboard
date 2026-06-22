@@ -40,11 +40,17 @@ export function AssistantTab({
   detail,
   comments,
   onApplied,
+  onGenerateFlowchart,
+  flowchartBusy,
 }: {
   task: ClickUpTask;
   detail: ClickUpTask | null;
   comments: Comment[];
   onApplied: () => void;
+  /** Generate a flowchart from the given text and draw it on this ticket's board. */
+  onGenerateFlowchart?: (prompt: string) => void | Promise<void>;
+  /** True while a board generation is in flight (shared with the board toolbar). */
+  flowchartBusy?: boolean;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -103,6 +109,13 @@ export function AssistantTab({
     } finally {
       setSending(false);
     }
+  }
+
+  function makeFlowchart() {
+    const text = input.trim();
+    if (!text || flowchartBusy || !onGenerateFlowchart) return;
+    // Keep the text (like the board toolbar does) so a failed generation isn't lost.
+    void onGenerateFlowchart(text);
   }
 
   async function applyAction(key: string, action: AssistantAction) {
@@ -184,7 +197,8 @@ export function AssistantTab({
           <div style={emptyStyle}>
             Ask Claude about this ticket — e.g. “summarize this and suggest subtasks”, or “draft a
             reply comment”. Claude can propose changes (comment, status, subtask…) that you approve
-            before anything is written to ClickUp.
+            before anything is written to ClickUp. Or type a description and hit
+            “📊 Flowchart → board” to draw a flowchart on this ticket's whiteboard.
           </div>
         )}
         {messages.map((m, mi) =>
@@ -222,6 +236,22 @@ export function AssistantTab({
       </div>
 
       {error && <div style={errStyle}>{error}</div>}
+
+      {onGenerateFlowchart && (
+        <div style={flowchartRowStyle}>
+          <span style={{ fontSize: 11.5, color: colors.textFaint, flex: 1 }}>
+            Turn the text below into a flowchart on this ticket's board →
+          </span>
+          <button
+            style={flowchartBtnStyle}
+            onClick={makeFlowchart}
+            disabled={flowchartBusy || !input.trim()}
+            title="Generate a flowchart from the text below and draw it on this ticket's board"
+          >
+            {flowchartBusy ? "Drawing…" : "📊 Flowchart → board"}
+          </button>
+        </div>
+      )}
 
       <div style={inputRowStyle}>
         <textarea
@@ -415,6 +445,25 @@ const ghostBtnStyle: CSSProperties = {
   borderRadius: radius.sm,
   cursor: "pointer",
   color: colors.textMuted,
+};
+
+const flowchartRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: space(2),
+  padding: `${space(1.5)}px ${space(4)}px 0`,
+};
+
+const flowchartBtnStyle: CSSProperties = {
+  border: `1px solid ${colors.border}`,
+  background: colors.surface,
+  borderRadius: radius.sm,
+  padding: `${space(1)}px ${space(2.5)}px`,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  color: colors.text,
+  whiteSpace: "nowrap",
 };
 
 const inputRowStyle: CSSProperties = {

@@ -64,10 +64,14 @@ function toDiagram(parsed: any): Diagram {
 
 /**
  * Ask Claude (via the local `claude` CLI, run by the Rust backend) for a diagram,
- * then return the parsed and validated result.
+ * then return the parsed and validated result. `context` (e.g. ticket title/description)
+ * is prepended so the diagram is grounded in the actual ticket.
  */
-export async function generateDiagram(prompt: string): Promise<Diagram> {
-  const raw = await invoke<string>("generate_diagram", { prompt });
+export async function generateDiagram(prompt: string, context?: string): Promise<Diagram> {
+  const fullPrompt = context?.trim()
+    ? `${context.trim()}\n\n---\n\nDIAGRAM REQUEST:\n${prompt}`
+    : prompt;
+  const raw = await invoke<string>("generate_diagram", { prompt: fullPrompt });
 
   const envelope = JSON.parse(raw) as ClaudeEnvelope;
   if (envelope.is_error || envelope.result == null) {
