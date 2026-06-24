@@ -67,6 +67,14 @@ export function TaskDrawer({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState(false);
 
+  // Hold onTaskUpdated in a ref so loadDetail can call it without taking it as a dep — the parents
+  // pass a fresh inline callback each render, which would otherwise re-fire loadDetail's mount
+  // effect on every render (infinite refetch loop).
+  const onTaskUpdatedRef = useRef(onTaskUpdated);
+  useEffect(() => {
+    onTaskUpdatedRef.current = onTaskUpdated;
+  });
+
   const apiRef = useRef<any>(null);
   const boardLoaded = useRef(false); // true once the saved scene has been applied
   const loadFailedRef = useRef(false); // true if an existing scene file failed to parse → never overwrite it
@@ -127,8 +135,10 @@ export function TaskDrawer({
     setErrorDetail(null);
     const [dRes, cRes] = await Promise.allSettled([fetchTaskDetail(task.id), fetchComments(task.id)]);
     if (myReq !== reqId.current) return; // a newer load (or unmount) superseded this one
-    if (dRes.status === "fulfilled") setDetail(dRes.value);
-    else setErrorDetail(toMessage(dRes.reason));
+    if (dRes.status === "fulfilled") {
+      setDetail(dRes.value);
+      onTaskUpdatedRef.current?.(dRes.value); // keep the board card / list in sync (fixes Ask Claude → Apply, and self-heals on open)
+    } else setErrorDetail(toMessage(dRes.reason));
     if (cRes.status === "fulfilled") setComments(cRes.value);
     setLoadingDetail(false);
   }, [task.id]);
@@ -311,15 +321,18 @@ export function TaskDrawer({
 
   async function handleStatusChange(newStatus: string) {
     await setStatus(task.id, newStatus); // throws → StatusPicker surfaces the error (change failed)
-    // The change landed in ClickUp; reflect it locally now so a re-fetch failure can't desync the UI.
-    // Clear the color too so the pill shows neutral (not the OLD status color) until the refetch.
-    setDetail((prev) => (prev ? { ...prev, status: newStatus, statusColor: null } : prev));
+    // The change landed in ClickUp; reflect it in BOTH the drawer AND the board/list now so a
+    // re-fetch failure can't desync the UI. Clear the color too so the pill shows neutral (not
+    // the OLD status color) until the refetch returns the accurate one.
+    const optimistic = { ...(detail ?? task), status: newStatus, statusColor: null };
+    setDetail(optimistic);
+    onTaskUpdated?.(optimistic); // board card / list pill updates immediately
     try {
       const updated = await fetchTaskDetail(task.id); // refresh accurate color/type/orderindex
       setDetail(updated);
-      onTaskUpdated?.(updated); // regroup the list under the new status
+      onTaskUpdated?.(updated); // regroup the list under the new status, with the real color
     } catch {
-      // status already applied locally; the list syncs on the next manual refresh
+      // optimistic update already applied to the drawer and the board card / list
     }
   }
 
