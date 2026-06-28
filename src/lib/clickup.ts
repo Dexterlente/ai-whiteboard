@@ -38,6 +38,13 @@ export type Comment = {
 };
 
 /** Fetch every open task assigned to me, across all workspaces. */
+/** Extract a ClickUp task id from a pasted task URL or a bare id. */
+export function parseTaskId(input: string): string {
+  const s = input.trim();
+  const m = s.match(/\/t\/([^/?#]+)/); // https://app.clickup.com/t/<id>
+  return (m ? m[1] : s.replace(/^#/, "")).trim();
+}
+
 export const fetchMyTasks = () => invoke<ClickUpTask[]>("fetch_my_clickup_tasks");
 
 /** Fetch a single task with its full markdown description. */

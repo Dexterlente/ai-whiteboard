@@ -69,6 +69,53 @@ async fn generate_diagram(prompt: String) -> Result<String, String> {
     run_claude(SYSTEM_PROMPT, &prompt)
 }
 
+/// Result of running the queue's verify command in a work folder.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VerifyResult {
+    exit_code: Option<i32>,
+    output: String,
+}
+
+/// Run a verify command (e.g. `npm test`) via `sh -c` in `cwd`, capturing combined
+/// stdout+stderr. Returns the exit code plus a tail-truncated output for the ticket comment.
+/// The Claude queue uses this to gate a ticket as succeeded only when it exits 0.
+/// Sync command so Tauri runs the (possibly long) build/test on a worker thread, not the
+/// async runtime.
+#[tauri::command]
+fn run_verify(cwd: String, command: String) -> Result<VerifyResult, String> {
+    if command.trim().is_empty() {
+        return Err("No verify command set.".into());
+    }
+    let cwd_path = match std::fs::canonicalize(&cwd) {
+        Ok(p) if p.is_dir() => p,
+        _ => return Err(format!("Working folder does not exist: {cwd}")),
+    };
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&command)
+        .current_dir(&cwd_path)
+        .output()
+        .map_err(|e| format!("Failed to run verify command: {e}"))?;
+    let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
+    combined.push_str(&String::from_utf8_lossy(&output.stderr));
+    // Keep the tail (test failures / compiler errors land at the end); cap for the comment.
+    const MAX: usize = 4000;
+    let out = if combined.len() > MAX {
+        let mut start = combined.len() - MAX;
+        while start < combined.len() && !combined.is_char_boundary(start) {
+            start += 1;
+        }
+        format!("…\n{}", &combined[start..])
+    } else {
+        combined
+    };
+    Ok(VerifyResult {
+        exit_code: output.status.code(),
+        output: out,
+    })
+}
+
 /// Directory where scenes and exports are stored: ~/.ai-whiteboard (created if missing).
 fn data_dir() -> Result<PathBuf, String> {
     let dir = home_dir()
@@ -1022,6 +1069,7 @@ pub fn run() {
         .manage(RunRegistry::default())
         .invoke_handler(tauri::generate_handler![
             generate_diagram,
+            run_verify,
             save_scene,
             load_scene,
             save_png,

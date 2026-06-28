@@ -1,37 +1,18 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AgentChat } from "./AgentChat";
-import { sessionKeyForFolder, type PermissionMode } from "../lib/agent";
+import {
+  AGENT_EFFORT_KEY as EFFORT_KEY,
+  AGENT_FOLDER_KEY as FOLDER_KEY,
+  AGENT_MODEL_KEY as MODEL_KEY,
+  AGENT_PERM_KEY as PERM_KEY,
+  EFFORT_OPTIONS,
+  MODEL_OPTIONS,
+  PERM_OPTIONS,
+  sessionKeyForFolder,
+  type PermissionMode,
+} from "../lib/agent";
 import { colors, radius, space } from "./ui";
-
-const FOLDER_KEY = "cu-agent-folder";
-const PERM_KEY = "cu-agent-perm";
-const MODEL_KEY = "cu-agent-model";
-const EFFORT_KEY = "cu-agent-effort";
-
-const PERM_OPTIONS: { value: PermissionMode; label: string }[] = [
-  { value: "read", label: "Read-only" },
-  { value: "acceptEdits", label: "Auto-edits (default)" },
-  { value: "auto", label: "Auto" },
-  { value: "full", label: "Full — runs any command" },
-];
-
-const MODEL_OPTIONS = [
-  { value: "", label: "Default model" },
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
-  { value: "fable", label: "Fable" },
-];
-
-const EFFORT_OPTIONS = [
-  { value: "", label: "Default effort" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Xhigh" },
-  { value: "max", label: "Max" },
-];
 
 /** The standalone Claude Code panel: pick a work folder + permission level, then chat. */
 export function AgentPanel() {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { fetchMyTasks, fetchTaskDetail, type ClickUpTask } from "../lib/clickup";
+import { fetchMyTasks, fetchTaskDetail, parseTaskId, type ClickUpTask } from "../lib/clickup";
 import { isOverdue, relativeDate } from "../lib/format";
 import { toMessage } from "../lib/errors";
 import { Avatar } from "./Avatar";
@@ -21,13 +21,6 @@ function loadCards(): BoardCard[] {
   } catch {
     return [];
   }
-}
-
-/** Extract a ClickUp task id from a pasted task URL or a bare id. */
-function parseTaskId(input: string): string {
-  const s = input.trim();
-  const m = s.match(/\/t\/([^/?#]+)/); // https://app.clickup.com/t/<id>
-  return (m ? m[1] : s.replace(/^#/, "")).trim();
 }
 
 /**

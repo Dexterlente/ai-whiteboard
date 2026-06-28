@@ -64,6 +64,13 @@ export function runAgent(opts: {
 
 export const cancelAgent = (runId: string) => invoke("claude_cancel", { runId });
 
+/** Result of the Rust `run_verify` command (the queue's build/test gate). */
+export type VerifyResult = { exitCode: number | null; output: string };
+
+/** Run a build/test command in `cwd` and report pass/fail + output (queue verification). */
+export const runVerify = (cwd: string, command: string) =>
+  invoke<VerifyResult>("run_verify", { cwd, command });
+
 // --- Slash commands (for the chat input autocomplete) ---
 export type SlashCommand = { name: string; description: string; source: string };
 
@@ -100,6 +107,31 @@ export const BUILTIN_SLASH_COMMANDS: SlashCommand[] = [
 export const AGENT_FOLDER_KEY = "cu-agent-folder";
 export const AGENT_PERM_KEY = "cu-agent-perm";
 export const DEFAULT_PERMISSION_MODE: PermissionMode = "acceptEdits";
+export const AGENT_MODEL_KEY = "cu-agent-model";
+export const AGENT_EFFORT_KEY = "cu-agent-effort";
+
+/** Selectable agent options, shared by the Claude Code panel and the queue config. */
+export const PERM_OPTIONS: { value: PermissionMode; label: string }[] = [
+  { value: "read", label: "Read-only" },
+  { value: "acceptEdits", label: "Auto-edits (default)" },
+  { value: "auto", label: "Auto" },
+  { value: "full", label: "Full — runs any command" },
+];
+export const MODEL_OPTIONS = [
+  { value: "", label: "Default model" },
+  { value: "opus", label: "Opus" },
+  { value: "sonnet", label: "Sonnet" },
+  { value: "haiku", label: "Haiku" },
+  { value: "fable", label: "Fable" },
+];
+export const EFFORT_OPTIONS = [
+  { value: "", label: "Default effort" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "xhigh", label: "Xhigh" },
+  { value: "max", label: "Max" },
+];
 
 export function getAgentFolder(): string {
   try {
@@ -278,4 +310,47 @@ export function applyEvent(state: AgentState, line: string): AgentState {
     default:
       return sessionId === state.sessionId ? state : { ...state, sessionId };
   }
+}
+
+/**
+ * Run one agent turn to completion (used by the ticket queue, not the chat panel): spawn
+ * `runAgent`, fold streamed stdout into a transcript via `applyEvent`, and resolve on the
+ * terminal `done` event. `onState` streams live progress to the UI. Rejects only if the
+ * process fails to launch — a non-zero run is reported via the resolved `exitCode`.
+ */
+export async function runAgentToCompletion(
+  opts: Omit<Parameters<typeof runAgent>[0], "onEvent"> & {
+    onState?: (state: AgentState) => void;
+  },
+): Promise<{ exitCode: number | null; sessionId: string | null; transcript: Transcript }> {
+  const { onState, ...runOpts } = opts;
+  let state: AgentState = {
+    transcript: [{ role: "assistant", text: "", tools: [], streaming: true }],
+    sessionId: null,
+  };
+  onState?.(state);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    runAgent({
+      ...runOpts,
+      onEvent: (e) => {
+        if (e.kind === "stdout") {
+          state = applyEvent(state, e.line);
+          onState?.(state);
+        } else if (e.kind === "done" && !settled) {
+          settled = true;
+          resolve({
+            exitCode: e.exitCode,
+            sessionId: e.sessionId ?? state.sessionId,
+            transcript: state.transcript,
+          });
+        }
+      },
+    }).catch((err) => {
+      if (!settled) {
+        settled = true;
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  });
 }

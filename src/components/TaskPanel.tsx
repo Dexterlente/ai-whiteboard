@@ -10,12 +10,14 @@ import { colors, radius, space } from "./ui";
  * Read-only side panel of the ClickUp tasks assigned to the user, grouped by status.
  * Owns its own state so fetching never interferes with the whiteboard toolbar.
  */
+export type RightView = "agent" | "board" | "queue";
+
 export function TaskPanel({
-  boardActive,
-  onToggleBoard,
+  view,
+  onSelectView,
 }: {
-  boardActive: boolean;
-  onToggleBoard: () => void;
+  view: RightView;
+  onSelectView: (v: RightView) => void;
 }) {
   const [tasks, setTasks] = useState<ClickUpTask[]>([]);
   const [token, setToken] = useState("");
@@ -118,11 +120,14 @@ export function TaskPanel({
       {error && <div style={errorStyle}>{error}</div>}
 
       <div style={tabBarStyle}>
-        <button style={tabBtnStyle(!boardActive)} onClick={() => boardActive && onToggleBoard()}>
+        <button style={tabBtnStyle(view === "agent")} onClick={() => onSelectView("agent")}>
           ✨ Claude Code
         </button>
-        <button style={tabBtnStyle(boardActive)} onClick={() => !boardActive && onToggleBoard()}>
+        <button style={tabBtnStyle(view === "board")} onClick={() => onSelectView("board")}>
           ▦ Board
+        </button>
+        <button style={tabBtnStyle(view === "queue")} onClick={() => onSelectView("queue")}>
+          ⚡ Queue
         </button>
       </div>
 
