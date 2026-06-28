@@ -86,8 +86,8 @@ Opens when you click a task:
 - Metadata: status badge, priority, due/start dates, assignees, tags, list name.
 - **Change status from the badge** — click it, pick a status from the list's real statuses; it writes back to ClickUp and the sidebar re‑groups live.
 - **Open in ClickUp** opens the ticket in your system browser.
-- **Split view** toggle — details on the left, the work pane (board/assistant) on the right.
-- Tabs: **Details · 🖉 Board · ✨ Ask Claude**.
+- **Split view** toggle — details on the left, the board on the right.
+- Tabs: **Details · 🖉 Board**.
 - **Per‑task Excalidraw board** — a drawing canvas saved per ticket, with an AI **"Generate diagram"** prompt that draws shapes onto *that* task's board and an **Export PNG**.
 - **Image lightbox** (click a description image to zoom) and smooth slide‑in/out animation.
 
@@ -98,12 +98,10 @@ A local, freeform board of task cards (toggle the **▦ Board** tab above the li
 - Card positions and contents **persist locally** (browser `localStorage`), so your layout survives restarts.
 
 ### Claude Code agent
-A real Claude Code session embedded in the app — two places:
-- **Standalone panel** (the Claude Code tab) for working in any folder.
-- **Per‑ticket assistant** (a ticket's Ask Claude tab) that receives the ticket as context.
+A real Claude Code session embedded in the app, in the **Claude Code tab**, for working in any folder.
 
 Capabilities:
-- **Streaming** assistant output and live **tool activity** (expandable).
+- **Streaming** agent output and live **tool activity** (expandable).
 - **Work folder** picker (native dialog) — the agent runs there.
 - **Model** (Opus / Sonnet / Haiku / Fable), **effort** (low → max), and **permission** (read‑only / auto‑edits / auto / full) selectors. **Shift+Tab** cycles the permission mode like the CLI.
 - **Slash‑command autocomplete** — type `/` to get built‑ins (`/code-review`, `/review`, `/init`, `/model`, `/effort`, `/compact`, …) plus your **custom commands** discovered from `.claude/commands/` (project + `~/.claude/commands/`).
@@ -118,7 +116,7 @@ Inter typeface (bundled), solid white‑on‑color status/tag badges that auto�
 
 1. **Launch** the app (`npm run tauri dev`, or the installed app from your dock).
 2. **Connect ClickUp:** click ⚙ in the task sidebar, paste your `pk_…` token, **Save & Refresh**. (Get a token from ClickUp → Settings → Apps → API Token.) Your assigned tasks appear, In Progress first.
-3. **Work a ticket:** click it → read the description/comments, change its **status from the badge**, or hit **Split view** to draw and read side by side. Use the **Board** tab to sketch, or **Ask Claude** to have the agent work on it.
+3. **Work a ticket:** click it → read the description/comments, change its **status from the badge**, or hit **Split view** to draw and read side by side. Use the **Board** tab to sketch and **Generate** a diagram from a prompt.
 4. **Use the board:** switch the right pane to **▦ Board**, then add cards (pick / paste / drag) and arrange them. Click any card to reopen the full ticket.
 5. **Use Claude Code:** switch to the **Claude Code** tab, pick a **work folder** (Open…), choose model/effort/permission (or **Shift+Tab** to cycle permission), and chat. Type `/` for commands.
 
@@ -155,7 +153,7 @@ All in `src-tauri/src/lib.rs`, grouped:
 | ClickUp read | `fetch_my_clickup_tasks`, `fetch_clickup_task`, `fetch_clickup_comments`, `fetch_list_statuses` |
 | ClickUp write | `clickup_set_status`, `clickup_set_priority`, `clickup_set_due_date`, `clickup_add_comment`, `clickup_create_subtask` |
 | Token/config | `save_clickup_token`, `load_clickup_token` |
-| AI (one‑shot) | `generate_diagram`, `claude_ask`, `claude_status`, `claude_test_connection` |
+| AI (one‑shot) | `generate_diagram` |
 | AI agent (stream) | `claude_run`, `claude_cancel`, `save_agent_session`, `load_agent_session`, `delete_agent_session`, `list_slash_commands` |
 | Scenes / misc | `save_task_scene`, `load_task_scene`, `save_scene`, `load_scene`, `save_png`, `open_external` |
 
@@ -173,18 +171,17 @@ src/
     TaskRow.tsx            # one task row (draggable)
     StatusGroup.tsx        # collapsible status section
     Avatar.tsx             # colored initials avatar
-    TaskDrawer.tsx         # ticket detail: markdown, comments, status, board, Ask Claude
+    TaskDrawer.tsx         # ticket detail: markdown, comments, status, board
     TaskBoard.tsx          # freeform local board of task cards
     AgentPanel.tsx         # standalone Claude Code session (folder/model/effort/permission)
     AgentChat.tsx          # streaming chat + slash-command menu
-    AssistantTab.tsx       # in-ticket "actions" assistant
     ui.ts                  # design tokens + color helpers (badges, contrast)
   hooks/
     useAgentSession.ts     # drives one streaming agent session
   lib/
     clickup.ts             # ClickUp invoke wrappers + types
     agent.ts               # agent types, runAgent, slash commands, stream reducer
-    assistant.ts           # ticket-context builder for the assistant
+    assistant.ts           # ticket-context builder for board diagram generation
     format.ts              # grouping, relative dates, initials
     markdown.ts            # marked + DOMPurify + external-link handling
     claude.ts, errors.ts, json.ts
@@ -206,7 +203,7 @@ Everything is local, under `~/.ai-whiteboard/`:
 |---|---|
 | `config.json` | your ClickUp token (`{"clickupToken":"pk_…"}`) |
 | `tasks/<taskId>.json` | each ticket's saved Excalidraw board |
-| `agent/<key>.json` | saved agent conversations (panel + per‑ticket) |
+| `agent/<key>.json` | saved agent conversations (Claude Code panel) |
 | `scene.json`, `export.png` | legacy/global scene + PNG export |
 
 The task **board layout** (which cards, where) is in the webview's `localStorage`. Nothing is committed to the repo or sent anywhere except ClickUp's API and your local `claude`.

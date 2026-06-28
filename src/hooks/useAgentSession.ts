@@ -33,7 +33,7 @@ function settleLast(s: AgentState): AgentState {
 /**
  * Drives one persistent agent session: loads its saved transcript, streams `claude` runs,
  * resumes the CLI session across turns, and supports stop + clear. Keyed by `sessionKey`
- * (folder hash for the panel, `task-{id}` for a ticket).
+ * (a folder hash for the standalone Claude Code panel).
  */
 export function useAgentSession(opts: {
   sessionKey: string;

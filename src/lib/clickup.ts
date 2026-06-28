@@ -69,7 +69,7 @@ export const saveToken = (token: string) => invoke("save_clickup_token", { token
 /** Load the saved token (empty string when unset). */
 export const loadToken = () => invoke<string>("load_clickup_token");
 
-// --- Writes (used by the ticket assistant after the user clicks Apply) ---
+// --- Writes (setStatus drives the status picker; the others are wrappers kept for manual controls) ---
 
 /** Map ClickUp priority words to their integer codes (1=urgent … 4=low). */
 export const PRIORITY_INT: Record<string, number> = { urgent: 1, high: 2, normal: 3, low: 4 };

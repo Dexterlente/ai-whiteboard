@@ -69,63 +69,6 @@ async fn generate_diagram(prompt: String) -> Result<String, String> {
     run_claude(SYSTEM_PROMPT, &prompt)
 }
 
-/// Generic Claude call used by the ticket assistant; the caller supplies the system prompt.
-#[tauri::command]
-async fn claude_ask(system_prompt: String, prompt: String) -> Result<String, String> {
-    run_claude(&system_prompt, &prompt)
-}
-
-/// Whether the `claude` binary can be found (offline check; no network or usage cost).
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ClaudeStatus {
-    installed: bool,
-    path: Option<String>,
-}
-
-#[tauri::command]
-async fn claude_status() -> ClaudeStatus {
-    for bin in claude_candidates() {
-        let found = Command::new(&bin)
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if found {
-            return ClaudeStatus {
-                installed: true,
-                path: Some(bin),
-            };
-        }
-    }
-    ClaudeStatus {
-        installed: false,
-        path: None,
-    }
-}
-
-/// On-demand login check: runs a tiny `claude -p` and reports whether it succeeded.
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ClaudeTest {
-    ok: bool,
-    detail: String,
-}
-
-#[tauri::command]
-async fn claude_test_connection() -> Result<ClaudeTest, String> {
-    match run_claude("", "Reply with the single word: ok") {
-        Ok(_) => Ok(ClaudeTest {
-            ok: true,
-            detail: "Connected".into(),
-        }),
-        Err(e) => Ok(ClaudeTest {
-            ok: false,
-            detail: e,
-        }),
-    }
-}
-
 /// Directory where scenes and exports are stored: ~/.ai-whiteboard (created if missing).
 fn data_dir() -> Result<PathBuf, String> {
     let dir = home_dir()
@@ -548,8 +491,8 @@ async fn fetch_clickup_comments(task_id: String) -> Result<Vec<Comment>, String>
         .collect())
 }
 
-// --- ClickUp writes. The saved pk_ token is full read+write; the explicit Apply in
-//     the assistant UI is the safety gate (nothing here runs without the user clicking it). ---
+// --- ClickUp writes. The saved pk_ token is full read+write; these only run on an
+//     explicit user action in the UI (e.g. picking a status), never automatically. ---
 
 /// Send a POST/PUT to ClickUp with the saved token. On a non-success status, include the
 /// response body so ClickUp's own message (e.g. an invalid status name) reaches the user.
@@ -667,7 +610,7 @@ struct RawListStatus {
     status: String,
 }
 
-/// The status names available in a list, so the assistant can propose a valid status.
+/// The status names available in a list, so the status picker can offer valid statuses.
 #[tauri::command]
 async fn fetch_list_statuses(list_id: String) -> Result<Vec<String>, String> {
     let url = format!("https://api.clickup.com/api/v2/list/{list_id}");
@@ -1079,9 +1022,6 @@ pub fn run() {
         .manage(RunRegistry::default())
         .invoke_handler(tauri::generate_handler![
             generate_diagram,
-            claude_ask,
-            claude_status,
-            claude_test_connection,
             save_scene,
             load_scene,
             save_png,

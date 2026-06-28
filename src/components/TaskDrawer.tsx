@@ -18,10 +18,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { relativeDate } from "../lib/format";
 import { toMessage } from "../lib/errors";
 import { Avatar } from "./Avatar";
-import { AssistantTab } from "./AssistantTab";
-import { AgentChat } from "./AgentChat";
-import { buildAgentTicketContext, buildDiagramContext } from "../lib/assistant";
-import { getAgentFolder, getAgentPermission } from "../lib/agent";
+import { buildDiagramContext } from "../lib/assistant";
 import { colors, radius, space, PRIORITY_COLOR, solidBadgeBg, tagColors } from "./ui";
 
 const serialize = (api: any): string =>
@@ -41,7 +38,7 @@ export function TaskDrawer({
   const [comments, setComments] = useState<Comment[]>([]);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
-  const [tab, setTab] = useState<"details" | "board" | "assistant">("details");
+  const [tab, setTab] = useState<"details" | "board">("details");
   const [view, setView] = useState<"tabs" | "split">(() =>
     typeof localStorage !== "undefined" && localStorage.getItem("cu-drawer-view") === "split"
       ? "split"
@@ -49,13 +46,6 @@ export function TaskDrawer({
   );
   const [boardMounted, setBoardMounted] = useState(view === "split");
   const [boardReady, setBoardReady] = useState(false);
-  const [assistantMounted, setAssistantMounted] = useState(false);
-  const [assistantMode, setAssistantMode] = useState<"actions" | "agent">(() =>
-    typeof localStorage !== "undefined" && localStorage.getItem("cu-assistant-mode") === "agent"
-      ? "agent"
-      : "actions",
-  );
-  const [agentSeen, setAgentSeen] = useState(() => assistantMode === "agent");
   const [visible, setVisible] = useState(false);
 
   // AI generate-into-board state.
@@ -118,7 +108,7 @@ export function TaskDrawer({
   // The status dropdown handles its own Escape via a capture listener.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && view === "tabs" && tab !== "board" && tab !== "assistant") requestClose();
+      if (e.key === "Escape" && view === "tabs" && tab !== "board") requestClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -126,8 +116,7 @@ export function TaskDrawer({
   }, [onClose, tab, view]);
 
   // Fetch full detail + comments. A comments failure must not hide the (successfully
-  // fetched) description, so settle the two independently. Exposed as a callback so the
-  // assistant + status picker can re-run it after they write a change.
+  // fetched) description, so settle the two independently.
   const reqId = useRef(0);
   const loadDetail = useCallback(async () => {
     const myReq = ++reqId.current;
@@ -137,7 +126,7 @@ export function TaskDrawer({
     if (myReq !== reqId.current) return; // a newer load (or unmount) superseded this one
     if (dRes.status === "fulfilled") {
       setDetail(dRes.value);
-      onTaskUpdatedRef.current?.(dRes.value); // keep the board card / list in sync (fixes Ask Claude → Apply, and self-heals on open)
+      onTaskUpdatedRef.current?.(dRes.value); // keep the board card / list in sync (self-heals on open)
     } else setErrorDetail(toMessage(dRes.reason));
     if (cRes.status === "fulfilled") setComments(cRes.value);
     setLoadingDetail(false);
@@ -256,8 +245,8 @@ export function TaskDrawer({
     return els.map((e) => ({ ...e, y: (e.y ?? 0) + dy }));
   }
 
-  // Generate a diagram and draw it onto THIS ticket's board. Shared by the board toolbar
-  // and the "Flowchart → board" button in Ask Claude (which may need the board mounted first).
+  // Generate a diagram and draw it onto THIS ticket's board, driven by the board toolbar
+  // prompt (mounts the board first if it isn't shown yet).
   async function generateOntoBoard(prompt: string) {
     if (!prompt.trim() || generatingRef.current) return; // ref guard: blocks a double-fire before state flips
     generatingRef.current = true;
@@ -385,15 +374,9 @@ export function TaskDrawer({
           )}
           <button
             onClick={() => { setTab("board"); setBoardMounted(true); }}
-            style={tabStyle(view === "split" ? tab !== "assistant" : tab === "board")}
+            style={tabStyle(view === "split" || tab === "board")}
           >
             🖉 Board
-          </button>
-          <button
-            onClick={() => { setTab("assistant"); setAssistantMounted(true); }}
-            style={tabStyle(tab === "assistant")}
-          >
-            ✨ Ask Claude
           </button>
           <button onClick={() => applyView(view === "split" ? "tabs" : "split")} style={toggleBtnStyle} title="Toggle split view">
             {view === "split" ? "▭ Tabbed" : "⇆ Split view"}
@@ -501,7 +484,7 @@ export function TaskDrawer({
 
           {/* Board (lazy-mounted, kept alive once opened) */}
           {boardMounted && (
-            <div style={{ ...boardPaneStyle, display: (view === "split" ? tab !== "assistant" : tab === "board") ? "flex" : "none" }}>
+            <div style={{ ...boardPaneStyle, display: (view === "split" || tab === "board") ? "flex" : "none" }}>
               <div style={boardToolbarStyle}>
                 <input
                   style={boardInputStyle}
@@ -529,69 +512,6 @@ export function TaskDrawer({
               <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
                 <Excalidraw excalidrawAPI={loadBoard} onChange={scheduleSave} />
               </div>
-            </div>
-          )}
-
-          {/* Ask Claude (lazy-mounted, kept alive once opened so the chat persists) */}
-          {assistantMounted && (
-            <div style={{ ...boardPaneStyle, display: tab === "assistant" ? "flex" : "none", flexDirection: "column" }}>
-              <div style={{ display: "flex", gap: space(1), padding: `${space(1.5)}px ${space(4)}px`, borderBottom: `1px solid ${colors.border}` }}>
-                {(["actions", "agent"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => {
-                      setAssistantMode(m);
-                      try {
-                        localStorage.setItem("cu-assistant-mode", m);
-                      } catch {
-                        /* ignore storage failures */
-                      }
-                      if (m === "agent") setAgentSeen(true);
-                    }}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      padding: `${space(1)}px ${space(2)}px`,
-                      color: assistantMode === m ? colors.accent : colors.textMuted,
-                      borderBottom: `2px solid ${assistantMode === m ? colors.accent : "transparent"}`,
-                    }}
-                  >
-                    {m === "actions" ? "Actions" : "✨ Agent"}
-                  </button>
-                ))}
-              </div>
-              <div style={{ flex: 1, minHeight: 0, display: assistantMode === "actions" ? "flex" : "none", flexDirection: "column" }}>
-                <AssistantTab
-                  task={task}
-                  detail={detail}
-                  comments={comments}
-                  onApplied={loadDetail}
-                  onGenerateFlowchart={generateOntoBoard}
-                  flowchartBusy={generating}
-                />
-              </div>
-              {agentSeen && (
-                <div style={{ flex: 1, minHeight: 0, display: assistantMode === "agent" ? "flex" : "none", flexDirection: "column" }}>
-                  <AgentChat
-                    key={task.id}
-                    sessionKey={`task-${task.id}`}
-                    cwd={getAgentFolder()}
-                    permissionMode={getAgentPermission()}
-                    appendSystemPrompt={buildAgentTicketContext(task, detail, comments, new Date().toISOString().slice(0, 10))}
-                    placeholder="Ask Claude to work on this ticket in your project folder…"
-                    disabledReason={
-                      !getAgentFolder().trim()
-                        ? "Set a work folder in the Claude Code tab first."
-                        : loadingDetail
-                          ? "Loading ticket…"
-                          : undefined
-                    }
-                  />
-                </div>
-              )}
             </div>
           )}
         </div>
